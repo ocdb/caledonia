@@ -1,0 +1,61 @@
+#compdef caledonia
+
+_caledonia() {
+	local curcontext="${curcontext}" state line
+	typeset -A opt_args
+
+	_arguments -C \
+		"1: :->commands" \
+		"2: :->args"
+
+	case "${state}" in
+		commands)
+			local -a commands
+			commands=(
+				"edit"
+				"show"
+				"search"
+				"tags"
+				"help"
+			)
+			_describe -t commands "command" commands
+		;;
+
+		args)
+			case "${line[1]}" in
+				show)
+					local -a timeframes
+					timeframes=(
+						"today"
+						"week"
+						"month"
+						"year"
+						"7d"
+						"14d"
+						"30d"
+						"90d"
+						"1w"
+						"2w"
+						"4w"
+						"1m"
+						"2m"
+						"3m"
+						"6m"
+						"1y"
+					)
+					_describe -t timeframes "timeframe" timeframes
+				;;
+
+				search)
+					_message "search query"
+				;;
+
+				tags)
+					_message "tags (comma-separated)"
+				;;
+			esac
+		;;
+	esac
+}
+
+_caledonia
