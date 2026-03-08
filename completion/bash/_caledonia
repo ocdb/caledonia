@@ -3,18 +3,18 @@ _caledonia() {
 	_init_completion || return
 
 	case "${cword}" in
-		1)
+		"1")
 			COMPREPLY=($(compgen -W "edit show search tags help" -- "${cur}"))
 		;;
-		2)
+		"2")
 			case "${words[1]}" in
-				show)
+				"show")
 					COMPREPLY=($(compgen -W "today week month year 7d 14d 30d 90d 1w 2w 4w 1m 2m 3m 6m 1y" -- "${cur}"))
 				;;
-				search)
+				"search")
 					COMPREPLY=()
 				;;
-				tags)
+				"tags")
 					COMPREPLY=()
 				;;
 			esac

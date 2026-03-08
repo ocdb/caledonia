@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # caledonia
 #
@@ -30,6 +30,17 @@ CALEDONIA_MSG_NO_RESULTS="${CALEDONIA_NAME}: No results."
 CALEDONIA_MSG_INVALID_ENTRY="${CALEDONIA_NAME}: Invalid entry at line %s\n"
 CALEDONIA_MSG_INVALID_ENTRIES="${CALEDONIA_NAME}: Invalid entries at lines %s\n"
 
+NEWLINE="
+"
+
+date_compact() {
+	printf "%s\n" "${1}" | tr --delete "-"
+}
+
+matches() {
+	printf "%s\n" "${1}" | grep --quiet --extended-regexp "${2}"
+}
+
 trim() {
 	sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
 }
@@ -39,19 +50,26 @@ date_field() {
 }
 
 is_range() {
-	[[ "${1}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]to[[:space:]][0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+	case "${1}" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]" to "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+			return 0
+		;;
+		*)
+			return 1
+		;;
+	esac
 }
 
 date_range() {
 	local RANGE_START RANGE_END RANGE_CURRENT
 
-	[[ "${1}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]to[[:space:]]([0-9]{4}-[0-9]{2}-[0-9]{2})$ ]] || return
+	is_range "${1}" || return
 
-	RANGE_START="${BASH_REMATCH[1]}"
-	RANGE_END="${BASH_REMATCH[2]}"
+	RANGE_START="${1%% to *}"
+	RANGE_END="${1##* to }"
 	RANGE_CURRENT="${RANGE_START}"
 
-	while [[ "${RANGE_CURRENT}" < "${RANGE_END}" ]] || [[ "${RANGE_CURRENT}" == "${RANGE_END}" ]]; do
+	while [ "$(date_compact "${RANGE_CURRENT}")" -le "$(date_compact "${RANGE_END}")" ]; do
 		echo "${RANGE_CURRENT}"
 		RANGE_CURRENT="$(date --date="${RANGE_CURRENT} +1 day" +%Y-%m-%d 2> "/dev/null")"
 	done
@@ -66,35 +84,35 @@ convert_timeframe() {
 	local TODAY
 
 	case "${TIMEFRAME_INPUT}" in
-		today)
+		"today")
 			echo "0"
 		;;
-		week)
+		"week")
 			TODAY="$(date +%Y-%m-%d)"
 			WEEK_START="$(date --date="sunday-7 days" +%Y-%m-%d)"
 			echo "$(( ( $(date --date="${TODAY}" +%s) - $(date --date="${WEEK_START}" +%s) ) / 86400 + 6 ))"
 		;;
-		month)
+		"month")
 			TODAY="$(date +%Y-%m-%d)"
 			MONTH_START="$(date +%Y-%m-01)"
 			MONTH_END="$(date --date="${MONTH_START} +1 month -1 day" +%Y-%m-%d)"
 			echo "$(( ( $(date --date="${MONTH_END}" +%s) - $(date --date="${TODAY}" +%s) ) / 86400 ))"
 		;;
-		year)
+		"year")
 			TODAY="$(date +%Y-%m-%d)"
 			YEAR_END="$(date +%Y-12-31)"
 			echo "$(( ( $(date --date="${YEAR_END}" +%s) - $(date --date="${TODAY}" +%s) ) / 86400 ))"
 		;;
 		*)
-			if [[ "${TIMEFRAME_INPUT}" =~ ^[0-9]+d$ ]]; then
+			if matches "${TIMEFRAME_INPUT}" "^[0-9]+d$"; then
 				echo "${TIMEFRAME_INPUT%d}"
-			elif [[ "${TIMEFRAME_INPUT}" =~ ^[0-9]+w$ ]]; then
+			elif matches "${TIMEFRAME_INPUT}" "^[0-9]+w$"; then
 				echo "$(( ${TIMEFRAME_INPUT%w} * 7 ))"
-			elif [[ "${TIMEFRAME_INPUT}" =~ ^[0-9]+m$ ]]; then
+			elif matches "${TIMEFRAME_INPUT}" "^[0-9]+m$"; then
 				echo "$(( ${TIMEFRAME_INPUT%m} * 30 ))"
-			elif [[ "${TIMEFRAME_INPUT}" =~ ^[0-9]+y$ ]]; then
+			elif matches "${TIMEFRAME_INPUT}" "^[0-9]+y$"; then
 				echo "$(( ${TIMEFRAME_INPUT%y} * 365 ))"
-			elif [[ "${TIMEFRAME_INPUT}" =~ ^[0-9]+$ ]]; then
+			elif matches "${TIMEFRAME_INPUT}" "^[0-9]+$"; then
 				echo "${TIMEFRAME_INPUT}"
 			else
 				echo "${CALEDONIA_MSG_INVALID_TIMEFRAME}" >&2
@@ -107,9 +125,11 @@ convert_timeframe() {
 interval() {
 	local DATE_FIELD="${1}"
 
-	if [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]\*([0-9]+[dwmy])$ ]]; then
-		echo "${BASH_REMATCH[2]}"
-	fi
+	case "${DATE_FIELD}" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]" *"[0-9]*[dwmy])
+			echo "${DATE_FIELD##*\*}"
+		;;
+	esac
 }
 
 valid_date() {
@@ -122,7 +142,7 @@ valid_entry() {
 	local ENTRY="${1}"
 	local DATE_FIELD ENTRY_ITEM TIME_PART TAGS_PART
 
-	if ! grep --quiet ":" <<< "${ENTRY}"; then
+	if ! printf "%s\n" "${ENTRY}" | grep --quiet ":"; then
 		echo "invalid"
 		return
 	fi
@@ -130,23 +150,23 @@ valid_entry() {
 	DATE_FIELD="$(date_field "${ENTRY}")"
 	ENTRY_ITEM="$(entry_item "${ENTRY}")"
 
-	if [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]to[[:space:]]([0-9]{4}-[0-9]{2}-[0-9]{2})$ ]]; then
-		if [[ "$(valid_date "${BASH_REMATCH[1]}")" == "invalid" ]] || [[ "$(valid_date "${BASH_REMATCH[2]}")" == "invalid" ]]; then
+	if matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]to[[:space:]][0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
+		if [ "$(valid_date "${DATE_FIELD%% to *}")" = "invalid" ] || [ "$(valid_date "${DATE_FIELD##* to }")" = "invalid" ]; then
 			echo "invalid"
 			return
 		fi
-	elif [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]\+([0-9]+[dwmy])$ ]]; then
-		if [[ "$(valid_date "${BASH_REMATCH[1]}")" == "invalid" ]]; then
+	elif matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]\+[0-9]+[dwmy]$"; then
+		if [ "$(valid_date "$(printf "%s\n" "${DATE_FIELD}" | awk '{print $1}')")" = "invalid" ]; then
 			echo "invalid"
 			return
 		fi
-	elif [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]\*([0-9]+[dwmy])$ ]]; then
-		if [[ "$(valid_date "${BASH_REMATCH[1]}")" == "invalid" ]]; then
+	elif matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]\*[0-9]+[dwmy]$"; then
+		if [ "$(valid_date "$(printf "%s\n" "${DATE_FIELD}" | awk '{print $1}')")" = "invalid" ]; then
 			echo "invalid"
 			return
 		fi
-	elif [[ "${DATE_FIELD}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-		if [[ "$(valid_date "${DATE_FIELD}")" == "invalid" ]]; then
+	elif matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
+		if [ "$(valid_date "${DATE_FIELD}")" = "invalid" ]; then
 			echo "invalid"
 			return
 		fi
@@ -155,24 +175,24 @@ valid_entry() {
 		return
 	fi
 
-	if grep --quiet "(@ " <<< "${ENTRY_ITEM}"; then
-		TIME_PART="$(grep --only-matching "(@ [0-9]\{2\}:[0-9]\{2\} [AP]M)" <<< "${ENTRY_ITEM}")"
+	if printf "%s\n" "${ENTRY_ITEM}" | grep --quiet "(@ "; then
+		TIME_PART="$(printf "%s\n" "${ENTRY_ITEM}" | grep --only-matching "(@ [0-9]\{2\}:[0-9]\{2\} [AP]M)")"
 
-		if [[ -z "${TIME_PART}" ]]; then
+		if [ -z "${TIME_PART}" ]; then
 			echo "invalid"
 			return
 		fi
 	fi
 
-	if grep --quiet "\[" <<< "${ENTRY_ITEM}"; then
-		TAGS_PART="$(grep --only-matching "\[.*\]" <<< "${ENTRY_ITEM}")"
+	if printf "%s\n" "${ENTRY_ITEM}" | grep --quiet "\["; then
+		TAGS_PART="$(printf "%s\n" "${ENTRY_ITEM}" | grep --only-matching "\[.*\]")"
 
-		if [[ -z "${TAGS_PART}" ]]; then
+		if [ -z "${TAGS_PART}" ]; then
 			echo "invalid"
 			return
 		fi
 
-		if ! grep --quiet "^\[\".*\"\]$" <<< "${TAGS_PART}"; then
+		if ! printf "%s\n" "${TAGS_PART}" | grep --quiet "^\[\".*\"\]$"; then
 			echo "invalid"
 			return
 		fi
@@ -184,41 +204,45 @@ convert_date() {
 	local TODAY="${2}"
 	local LIMIT="${3}"
 	local BASE_DATE INTERVAL DAYS CURRENT DAYS_CONVERTED RANGE_DATE
+	local RANGE_OUTPUT
 
 	if is_range "${DATE_FIELD}"; then
+		RANGE_OUTPUT="$(date_range "${DATE_FIELD}")"
 		while IFS= read -r RANGE_DATE; do
-			[[ -z "${RANGE_DATE}" ]] && continue
-			if [[ "${RANGE_DATE}" < "${TODAY}" ]]; then
+			[ -z "${RANGE_DATE}" ] && continue
+			if [ "$(date_compact "${RANGE_DATE}")" -lt "$(date_compact "${TODAY}")" ]; then
 				continue
 			fi
-			if [[ -n "${LIMIT}" ]] && [[ "${RANGE_DATE}" > "${LIMIT}" ]]; then
+			if [ -n "${LIMIT}" ] && [ "$(date_compact "${RANGE_DATE}")" -gt "$(date_compact "${LIMIT}")" ]; then
 				continue
 			fi
 			echo "${RANGE_DATE}"
-		done < <(date_range "${DATE_FIELD}")
+		done <<-RANGE_EOF
+			${RANGE_OUTPUT}
+		RANGE_EOF
 		return
 	fi
 
-	if [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]\+([0-9]+[dwmy])$ ]]; then
-		BASE_DATE="${BASH_REMATCH[1]}"
-		DAYS="${BASH_REMATCH[2]}"
+	if matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]\+[0-9]+[dwmy]$"; then
+		BASE_DATE="$(printf "%s\n" "${DATE_FIELD}" | awk '{print $1}')"
+		DAYS="$(printf "%s\n" "${DATE_FIELD}" | sed "s/^.*+//")"
 		DAYS_CONVERTED="$(convert_timeframe "${DAYS}")"
 		CURRENT="$(date --date="${BASE_DATE} +${DAYS_CONVERTED} days" +%Y-%m-%d 2> "/dev/null")"
 
-		if [[ "${CURRENT}" > "${TODAY}" || "${CURRENT}" == "${TODAY}" ]] && [[ -z "${LIMIT}" || "${CURRENT}" < "${LIMIT}" ]]; then
+		if [ "$(date_compact "${CURRENT}")" -ge "$(date_compact "${TODAY}")" ] && { [ -z "${LIMIT}" ] || [ "$(date_compact "${CURRENT}")" -lt "$(date_compact "${LIMIT}")" ]; }; then
 			echo "${CURRENT}"
 		fi
 		return
 	fi
 
-	if [[ "${DATE_FIELD}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]\*([0-9]+[dwmy])$ ]]; then
-		BASE_DATE="${BASH_REMATCH[1]}"
-		INTERVAL="${BASH_REMATCH[2]}"
+	if matches "${DATE_FIELD}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]\*[0-9]+[dwmy]$"; then
+		BASE_DATE="$(printf "%s\n" "${DATE_FIELD}" | awk '{print $1}')"
+		INTERVAL="$(printf "%s\n" "${DATE_FIELD}" | sed "s/^.*\*//")"
 		DAYS_CONVERTED="$(convert_timeframe "${INTERVAL}")"
 		CURRENT="${BASE_DATE}"
 
 		while true; do
-			if [[ "${CURRENT}" > "${TODAY}" || "${CURRENT}" == "${TODAY}" ]]; then
+			if [ "$(date_compact "${CURRENT}")" -ge "$(date_compact "${TODAY}")" ]; then
 				echo "${CURRENT}"
 				break
 			fi
@@ -243,24 +267,24 @@ display_event() {
 	local EVENT_DAY EVENT_DATE_WITH_DAY
 	local EVENT_TIME EVENT_TIME_WITH_UTC LOCAL_TIME SYSTEM_TZ UTC_TIMESTAMP
 
-	EVENT_ITEM="$(sed "s/\[.*\]//g" <<< "${EVENT_ITEM}" | trim)"
+	EVENT_ITEM="$(printf "%s\n" "${EVENT_ITEM}" | sed "s/\[.*\]//g" | trim)"
 
 	EVENT_DAY="$(date --date="${EVENT_DATE}" +%A 2> "/dev/null")"
 	EVENT_DATE_WITH_DAY="${EVENT_DATE} (${EVENT_DAY})"
 
-	EVENT_TIME="$(grep --only-matching "(@ [0-9]\{2\}:[0-9]\{2\} [AP]M)" <<< "${EVENT_ITEM}")"
+	EVENT_TIME="$(printf "%s\n" "${EVENT_ITEM}" | grep --only-matching "(@ [0-9]\{2\}:[0-9]\{2\} [AP]M)")"
 
-	if [[ -n "${EVENT_TIME}" ]]; then
-		LOCAL_TIME="$(sed "s/[@()]//g" <<< "${EVENT_TIME}" | trim)"
+	if [ -n "${EVENT_TIME}" ]; then
+		LOCAL_TIME="$(printf "%s\n" "${EVENT_TIME}" | sed "s/[@()]//g" | trim)"
 		SYSTEM_TZ="$(date +"%Z")"
 		UTC_TIMESTAMP="$(date --utc --date="${EVENT_DATE} ${LOCAL_TIME} ${SYSTEM_TZ}" +"%H:%M UTC" 2> "/dev/null")"
 		EVENT_TIME_WITH_UTC="${LOCAL_TIME} (${UTC_TIMESTAMP})"
-		EVENT_ITEM="$(sed "s/${EVENT_TIME}//" <<< "${EVENT_ITEM}" | trim)"
+		EVENT_ITEM="$(printf "%s\n" "${EVENT_ITEM}" | sed "s/${EVENT_TIME}//" | trim)"
 	else
 		EVENT_TIME_WITH_UTC=""
 	fi
 
-	if [[ -n "${INTERVAL}" ]]; then
+	if [ -n "${INTERVAL}" ]; then
 		printf "\033[35m%s\033[0m \033[97m(*%s)\033[0m%*s \033[37m%-25s\033[0m %s\n" "${EVENT_DATE_WITH_DAY}" "${INTERVAL}" "$((33 - ${#EVENT_DATE_WITH_DAY} - ${#INTERVAL} - 4))" "" "${EVENT_TIME_WITH_UTC}" "${EVENT_ITEM}"
 	else
 		printf "\033[35m%-33s\033[0m \033[37m%-25s\033[0m %s\n" "${EVENT_DATE_WITH_DAY}" "${EVENT_TIME_WITH_UTC}" "${EVENT_ITEM}"
@@ -271,12 +295,12 @@ show_errors() {
 	local ERROR_LINES="${1}"
 	local ERROR_COUNT
 
-	if [[ -n "${ERROR_LINES}" ]]; then
-		ERROR_COUNT="$(grep --only-matching "," <<< "${ERROR_LINES}" | wc --lines)"
+	if [ -n "${ERROR_LINES}" ]; then
+		ERROR_COUNT="$(printf "%s\n" "${ERROR_LINES}" | grep --only-matching "," | wc --lines)"
 
 		printf "\n"
 
-		if [[ "${ERROR_COUNT}" -eq "1" ]]; then
+		if [ "${ERROR_COUNT}" -eq "1" ]; then
 			printf "${CALEDONIA_MSG_INVALID_ENTRY}" "${ERROR_LINES%,}" >&2
 		else
 			printf "${CALEDONIA_MSG_INVALID_ENTRIES}" "${ERROR_LINES%,}" >&2
@@ -294,15 +318,15 @@ show_events() {
 	local FILTER_END="${3}"
 	local TODAY LIMIT_DATE DATE_FIELD EXPANDED_DATES EXPANDED_DATE ENTRY_ITEM INTERVAL
 	local LINE_NUMBER ERROR_LINES CALENDAR_ENTRY
-	local -a EVENTS_TO_DISPLAY
+	local EVENTS_TO_DISPLAY CALENDAR_DATA
 
-	if [[ -n "${FILTER_START}" ]] && [[ -n "${FILTER_END}" ]]; then
+	if [ -n "${FILTER_START}" ] && [ -n "${FILTER_END}" ]; then
 		TODAY="${FILTER_START}"
 		LIMIT_DATE="${FILTER_END}"
 	else
 		TODAY="$(date +%Y-%m-%d)"
 
-		if [[ -z "${TIMEFRAME}" ]]; then
+		if [ -z "${TIMEFRAME}" ]; then
 			LIMIT_DATE=""
 		else
 			LIMIT_DATE="$(date --date "+${TIMEFRAME} days" +%Y-%m-%d)"
@@ -311,13 +335,15 @@ show_events() {
 
 	LINE_NUMBER="0"
 	ERROR_LINES=""
-	EVENTS_TO_DISPLAY=()
+	EVENTS_TO_DISPLAY=""
+
+	CALENDAR_DATA="$(pass show "${CALEDONIA_CALENDAR_LOCATION}")"
 
 	while IFS= read -r CALENDAR_ENTRY; do
 		LINE_NUMBER="$((LINE_NUMBER + 1))"
-		[[ -z "${CALENDAR_ENTRY}" ]] && continue
+		[ -z "${CALENDAR_ENTRY}" ] && continue
 
-		if [[ "$(valid_entry "${CALENDAR_ENTRY}")" == "invalid" ]]; then
+		if [ "$(valid_entry "${CALENDAR_ENTRY}")" = "invalid" ]; then
 			ERROR_LINES="${ERROR_LINES}${LINE_NUMBER},"
 			continue
 		fi
@@ -329,17 +355,21 @@ show_events() {
 		EXPANDED_DATES="$(convert_date "${DATE_FIELD}" "${TODAY}" "${LIMIT_DATE}")"
 
 		while IFS= read -r EXPANDED_DATE; do
-			[[ -z "${EXPANDED_DATE}" ]] && continue
+			[ -z "${EXPANDED_DATE}" ] && continue
 
-			if [[ "${EXPANDED_DATE}" == "${TODAY}" ]] || [[ "${EXPANDED_DATE}" > "${TODAY}" && (-z "${LIMIT_DATE}" || "${EXPANDED_DATE}" < "${LIMIT_DATE}" || "${EXPANDED_DATE}" == "${LIMIT_DATE}") ]]; then
-				EVENTS_TO_DISPLAY+=("${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}")
+			if [ "${EXPANDED_DATE}" = "${TODAY}" ] || { [ "$(date_compact "${EXPANDED_DATE}")" -gt "$(date_compact "${TODAY}")" ] && { [ -z "${LIMIT_DATE}" ] || [ "$(date_compact "${EXPANDED_DATE}")" -le "$(date_compact "${LIMIT_DATE}")" ]; }; }; then
+				EVENTS_TO_DISPLAY="${EVENTS_TO_DISPLAY}${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}${NEWLINE}"
 			fi
-		done <<< "${EXPANDED_DATES}"
-	done < <(pass show "${CALEDONIA_CALENDAR_LOCATION}")
+		done <<-DATES_EOF
+			${EXPANDED_DATES}
+		DATES_EOF
+	done <<-CAL_EOF
+		${CALENDAR_DATA}
+	CAL_EOF
 
-	if [[ "${#EVENTS_TO_DISPLAY[@]}" -gt "0" ]]; then
+	if [ -n "${EVENTS_TO_DISPLAY}" ]; then
 		header
-		printf "%s\n" "${EVENTS_TO_DISPLAY[@]}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
+		printf "%s" "${EVENTS_TO_DISPLAY}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
 			display_event "${EXPANDED_DATE}" "${INTERVAL}" "${ENTRY_ITEM}"
 		done
 	else
@@ -353,11 +383,11 @@ search_events() {
 	local SEARCH_INPUT="${1}"
 	local DATE_FIELD ENTRY_ITEM EXPANDED_DATES EXPANDED_DATE EVENT_ITEM_CLEAN INTERVAL
 	local TODAY LIMIT_DATE LINE_NUMBER ERROR_LINES CALENDAR_ENTRY
-	local -a RESULTS
+	local RESULTS CALENDAR_DATA
 
 	TODAY="$(date +%Y-%m-%d)"
 
-	if [[ -z "${CALEDONIA_TIMEFRAME_ALL}" ]]; then
+	if [ -z "${CALEDONIA_TIMEFRAME_ALL}" ]; then
 		LIMIT_DATE=""
 	else
 		LIMIT_DATE="$(date --date "+${CALEDONIA_TIMEFRAME_ALL} days" +%Y-%m-%d)"
@@ -365,37 +395,43 @@ search_events() {
 
 	LINE_NUMBER="0"
 	ERROR_LINES=""
-	RESULTS=()
+	RESULTS=""
+
+	CALENDAR_DATA="$(pass show "${CALEDONIA_CALENDAR_LOCATION}")"
 
 	while IFS= read -r CALENDAR_ENTRY; do
 		LINE_NUMBER="$((LINE_NUMBER + 1))"
 
-		[[ -z "${CALENDAR_ENTRY}" ]] && continue
+		[ -z "${CALENDAR_ENTRY}" ] && continue
 
-		if [[ "$(valid_entry "${CALENDAR_ENTRY}")" == "invalid" ]]; then
+		if [ "$(valid_entry "${CALENDAR_ENTRY}")" = "invalid" ]; then
 			ERROR_LINES="${ERROR_LINES}${LINE_NUMBER},"
 			continue
 		fi
 
 		ENTRY_ITEM="$(entry_item "${CALENDAR_ENTRY}")"
-		EVENT_ITEM_CLEAN="$(sed "s/\[.*\]//g" <<< "${ENTRY_ITEM}" | trim)"
+		EVENT_ITEM_CLEAN="$(printf "%s\n" "${ENTRY_ITEM}" | sed "s/\[.*\]//g" | trim)"
 
-		if grep --ignore-case --quiet "${SEARCH_INPUT}" <<< "${EVENT_ITEM_CLEAN}"; then
+		if printf "%s\n" "${EVENT_ITEM_CLEAN}" | grep --ignore-case --quiet "${SEARCH_INPUT}"; then
 			DATE_FIELD="$(date_field "${CALENDAR_ENTRY}")"
 			INTERVAL="$(interval "${DATE_FIELD}")"
 
 			EXPANDED_DATES="$(convert_date "${DATE_FIELD}" "${TODAY}" "${LIMIT_DATE}")"
 
 			while IFS= read -r EXPANDED_DATE; do
-				[[ -z "${EXPANDED_DATE}" ]] && continue
-				RESULTS+=("${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}")
-			done <<< "${EXPANDED_DATES}"
+				[ -z "${EXPANDED_DATE}" ] && continue
+				RESULTS="${RESULTS}${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}${NEWLINE}"
+			done <<-DATES_EOF
+				${EXPANDED_DATES}
+			DATES_EOF
 		fi
-	done < <(pass show "${CALEDONIA_CALENDAR_LOCATION}")
+	done <<-CAL_EOF
+		${CALENDAR_DATA}
+	CAL_EOF
 
-	if [[ "${#RESULTS[@]}" -gt "0" ]]; then
+	if [ -n "${RESULTS}" ]; then
 		header
-		printf "%s\n" "${RESULTS[@]}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
+		printf "%s" "${RESULTS}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
 			display_event "${EXPANDED_DATE}" "${INTERVAL}" "${ENTRY_ITEM}"
 		done
 	else
@@ -407,48 +443,53 @@ search_events() {
 
 filter_tagged() {
 	local TAGS="${1}"
-	local CLEAN_TAGS TAG_ARRAY EVENT_TAGS MATCH_FOUND TAG
+	local CLEAN_TAGS EVENT_TAGS MATCH_FOUND TAG
 	local DATE_FIELD ENTRY_ITEM EXPANDED_DATES EXPANDED_DATE INTERVAL
 	local TODAY LIMIT_DATE LINE_NUMBER ERROR_LINES CALENDAR_ENTRY
-	local -a RESULTS
+	local RESULTS OLD_IFS CALENDAR_DATA
 
 	TODAY="$(date +%Y-%m-%d)"
 
-	if [[ -z "${CALEDONIA_TIMEFRAME_ALL}" ]]; then
+	if [ -z "${CALEDONIA_TIMEFRAME_ALL}" ]; then
 		LIMIT_DATE=""
 	else
 		LIMIT_DATE="$(date --date "+${CALEDONIA_TIMEFRAME_ALL} days" +%Y-%m-%d)"
 	fi
 
-	CLEAN_TAGS="${TAGS// /}"
-	IFS="," read -ra TAG_ARRAY <<< "${CLEAN_TAGS}"
+	CLEAN_TAGS="$(printf "%s" "${TAGS}" | tr --delete " ")"
 
 	LINE_NUMBER="0"
 	ERROR_LINES=""
-	RESULTS=()
+	RESULTS=""
+
+	CALENDAR_DATA="$(pass show "${CALEDONIA_CALENDAR_LOCATION}")"
 
 	while IFS= read -r CALENDAR_ENTRY; do
 		LINE_NUMBER="$((LINE_NUMBER + 1))"
 
-		[[ -z "${CALENDAR_ENTRY}" ]] && continue
+		[ -z "${CALENDAR_ENTRY}" ] && continue
 
-		if [[ "$(valid_entry "${CALENDAR_ENTRY}")" == "invalid" ]]; then
+		if [ "$(valid_entry "${CALENDAR_ENTRY}")" = "invalid" ]; then
 			ERROR_LINES="${ERROR_LINES}${LINE_NUMBER},"
 			continue
 		fi
 
-		EVENT_TAGS="$(grep --only-matching "\[.*\]" <<< "${CALENDAR_ENTRY}" | sed "s/^\[//;s/\]$//")"
+		EVENT_TAGS="$(printf "%s\n" "${CALENDAR_ENTRY}" | grep --only-matching "\[.*\]" | sed "s/^\[//;s/\]$//")"
 
 		MATCH_FOUND="true"
 
-		for TAG in "${TAG_ARRAY[@]}"; do
-			if ! grep --quiet "\"${TAG}\"" <<< "${EVENT_TAGS}"; then
+		OLD_IFS="${IFS}"
+		IFS=","
+		for TAG in ${CLEAN_TAGS}; do
+			IFS="${OLD_IFS}"
+			if ! printf "%s\n" "${EVENT_TAGS}" | grep --quiet "\"${TAG}\""; then
 				MATCH_FOUND="false"
 				break
 			fi
 		done
+		IFS="${OLD_IFS}"
 
-		if [[ "${MATCH_FOUND}" == "true" ]]; then
+		if [ "${MATCH_FOUND}" = "true" ]; then
 			DATE_FIELD="$(date_field "${CALENDAR_ENTRY}")"
 			ENTRY_ITEM="$(entry_item "${CALENDAR_ENTRY}")"
 			INTERVAL="$(interval "${DATE_FIELD}")"
@@ -456,15 +497,19 @@ filter_tagged() {
 			EXPANDED_DATES="$(convert_date "${DATE_FIELD}" "${TODAY}" "${LIMIT_DATE}")"
 
 			while IFS= read -r EXPANDED_DATE; do
-				[[ -z "${EXPANDED_DATE}" ]] && continue
-				RESULTS+=("${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}")
-			done <<< "${EXPANDED_DATES}"
+				[ -z "${EXPANDED_DATE}" ] && continue
+				RESULTS="${RESULTS}${EXPANDED_DATE}|${INTERVAL}|${ENTRY_ITEM}${NEWLINE}"
+			done <<-DATES_EOF
+				${EXPANDED_DATES}
+			DATES_EOF
 		fi
-	done < <(pass show "${CALEDONIA_CALENDAR_LOCATION}")
+	done <<-CAL_EOF
+		${CALENDAR_DATA}
+	CAL_EOF
 
-	if [[ "${#RESULTS[@]}" -gt "0" ]]; then
+	if [ -n "${RESULTS}" ]; then
 		header
-		printf "%s\n" "${RESULTS[@]}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
+		printf "%s" "${RESULTS}" | sort | while IFS="|" read -r EXPANDED_DATE INTERVAL ENTRY_ITEM; do
 			display_event "${EXPANDED_DATE}" "${INTERVAL}" "${ENTRY_ITEM}"
 		done
 	else
@@ -507,13 +552,13 @@ case "${1}" in
 		TIMEFRAME="$(convert_timeframe "${CALEDONIA_TIMEFRAME_DEFAULT}")"
 		show_events "${TIMEFRAME}"
 	;;
-	edit)
+	"edit")
 		edit_calendar
 	;;
-	show)
-		if [[ -n "${2}" ]] && [[ -n "${3}" ]]; then
-			if [[ "${2}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && [[ "${3}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-				if [[ "$(valid_date "${2}")" == "invalid" ]] || [[ "$(valid_date "${3}")" == "invalid" ]]; then
+	"show")
+		if [ -n "${2}" ] && [ -n "${3}" ]; then
+			if matches "${2}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" && matches "${3}" "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"; then
+				if [ "$(valid_date "${2}")" = "invalid" ] || [ "$(valid_date "${3}")" = "invalid" ]; then
 					echo "${CALEDONIA_MSG_INVALID_DATE}" >&2
 					exit "1"
 				fi
@@ -522,28 +567,28 @@ case "${1}" in
 				echo "${CALEDONIA_MSG_INVALID_TIMEFRAME}" >&2
 				exit "1"
 			fi
-		elif [[ -n "${2}" ]]; then
+		elif [ -n "${2}" ]; then
 			TIMEFRAME="$(convert_timeframe "${2}")"
 			show_events "${TIMEFRAME}"
 		else
 			show_events "${CALEDONIA_TIMEFRAME_ALL}"
 		fi
 	;;
-	search)
-		if [[ -n "${2}" ]]; then
+	"search")
+		if [ -n "${2}" ]; then
 			search_events "${2}"
 		else
 			echo "${CALEDONIA_MSG_PROVIDE_SEARCH}"
 		fi
 	;;
-	tags)
-		if [[ -n "${2}" ]]; then
+	"tags")
+		if [ -n "${2}" ]; then
 			filter_tagged "${2}"
 		else
 			echo "${CALEDONIA_MSG_PROVIDE_TAG}"
 		fi
 	;;
-	help)
+	"help")
 		show_help
 	;;
 	*)

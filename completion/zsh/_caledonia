@@ -9,7 +9,7 @@ _caledonia() {
 		"2: :->args"
 
 	case "${state}" in
-		commands)
+		"commands")
 			local -a commands
 			commands=(
 				"edit"
@@ -21,9 +21,9 @@ _caledonia() {
 			_describe -t commands "command" commands
 		;;
 
-		args)
+		"args")
 			case "${line[1]}" in
-				show)
+				"show")
 					local -a timeframes
 					timeframes=(
 						"today"
@@ -46,11 +46,11 @@ _caledonia() {
 					_describe -t timeframes "timeframe" timeframes
 				;;
 
-				search)
+				"search")
 					_message "search query"
 				;;
 
-				tags)
+				"tags")
 					_message "tags (comma-separated)"
 				;;
 			esac
