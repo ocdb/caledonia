@@ -20,7 +20,6 @@ _caledonia() {
 			)
 			_describe -t commands "command" commands
 		;;
-
 		"args")
 			case "${line[1]}" in
 				"show")
@@ -45,11 +44,9 @@ _caledonia() {
 					)
 					_describe -t timeframes "timeframe" timeframes
 				;;
-
 				"search")
 					_message "search query"
 				;;
-
 				"tags")
 					_message "tags (comma-separated)"
 				;;
